@@ -19,7 +19,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+a {
   font: inherit;
 }
 
@@ -95,11 +96,14 @@ button {
 
 .topbar {
   display: flex;
+  gap: 14px;
   justify-content: flex-end;
+  align-items: flex-start;
   margin-bottom: 20px;
 }
 
 .login-form,
+.auth-tabs,
 .flashcard-form,
 .search-form,
 .button-row,
@@ -120,6 +124,67 @@ button {
 .login-form {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.share-wrap {
+  position: relative;
+}
+
+.share-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 10px;
+  width: min(280px, calc(100vw - 36px));
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+
+.qr-image {
+  width: 100%;
+  max-width: 220px;
+  justify-self: center;
+  border-radius: 8px;
+  background: white;
+}
+
+.share-link {
+  font-size: 0.8rem;
+}
+
+.auth-tabs {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.auth-tab {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.auth-tab-active {
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--accent);
+}
+
+.auth-message {
+  width: 100%;
+  margin: 0;
+  color: var(--accent);
+  text-align: right;
 }
 
 .stack {
@@ -240,8 +305,12 @@ button {
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 10px 15px;
   border: 1px solid var(--border);
+  text-decoration: none;
 }
 
 .button:hover,
@@ -496,6 +565,41 @@ button {
   justify-content: space-between;
 }
 
+.file-picker {
+  position: relative;
+  overflow: hidden;
+}
+
+.file-picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.file-name {
+  margin: 0 0 5px;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
 .attempt-list {
   display: grid;
   gap: 10px;
@@ -638,10 +742,26 @@ button {
   .quiz-meta,
   .flashcard-form,
   .search-form,
-  .note-footer {
+  .note-footer,
+  .file-item {
     align-items: stretch;
     justify-content: flex-start;
     flex-direction: column;
+  }
+
+  .share-wrap,
+  .share-wrap .button,
+  .auth-tabs {
+    width: 100%;
+  }
+
+  .share-popover {
+    position: static;
+    margin-top: 10px;
+  }
+
+  .auth-message {
+    text-align: left;
   }
 
   .timer-block {

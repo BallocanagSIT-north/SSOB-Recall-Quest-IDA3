@@ -52,28 +52,79 @@ export function Sidebar({ menuItems, activeView, onViewChange, profile, levelInf
   );
 }
 
-export function TopBar({ loginName, onLoginNameChange, onLogin, onLogout }) {
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+export function TopBar(props) {
+  const {
+    authMode,
+    authDraft,
+    authMessage,
+    shareUrl,
+    qrImageUrl,
+    isShareOpen,
+    onAuthModeChange,
+    onAuthDraftChange,
+    onAuthSubmit,
+    onShareToggle,
+    onCopyShareUrl,
+    onLogout,
+  } = props;
   return (
     <div className="topbar">
-      <form onSubmit={onLogin} className="login-form">
+      <div className="share-wrap">
+        <button type="button" onClick={onShareToggle} className="button button-secondary">
+          QR Share
+        </button>
+        {isShareOpen && (
+          <div className="share-popover">
+            <p className="eyebrow">Share app</p>
+            <img src={qrImageUrl} alt="QR code to open RecallQuest" className="qr-image" />
+            <input value={shareUrl} readOnly className="field-input share-link" />
+            <button type="button" onClick={onCopyShareUrl} className="button button-primary">
+              Copy link
+            </button>
+          </div>
+        )}
+      </div>
+      <form onSubmit={onAuthSubmit} className="login-form">
+        <div className="auth-tabs" aria-label="Account action">
+          <button type="button" onClick={() => onAuthModeChange("login")} className={join("auth-tab", authMode === "login" && "auth-tab-active")}>
+            Login
+          </button>
+          <button type="button" onClick={() => onAuthModeChange("register")} className={join("auth-tab", authMode === "register" && "auth-tab-active")}>
+            Register
+          </button>
+        </div>
         <input
-          value={loginName}
-          onChange={(event) => onLoginNameChange(event.target.value)}
+          value={authDraft.username}
+          onChange={(event) => onAuthDraftChange("username", event.target.value)}
           placeholder="Username"
           className="field-input field-input-inline"
         />
+        <input
+          value={authDraft.password}
+          onChange={(event) => onAuthDraftChange("password", event.target.value)}
+          placeholder="Password"
+          type="password"
+          className="field-input field-input-inline"
+        />
         <button type="submit" className="button button-primary">
-          Log in
+          {authMode === "login" ? "Log in" : "Register"}
         </button>
         <button type="button" onClick={onLogout} className="button button-secondary">
           Log out
         </button>
+        {authMessage && <p className="auth-message">{authMessage}</p>}
       </form>
     </div>
   );
 }
 
-export function DashboardView({ notes, noteDraft, onNoteDraftChange, onAddNote, onDeleteNote }) {
+export function DashboardView({ notes, noteDraft, onNoteDraftChange, onAddNote, onDeleteNote, files, fileMessage, onFilesSelected, onDeleteFile }) {
   return (
     <div className="stack">
       <Panel>
@@ -116,6 +167,40 @@ export function DashboardView({ notes, noteDraft, onNoteDraftChange, onAddNote, 
           )}
         </div>
       </Panel>
+      <Panel>
+        <div className="section-head">
+          <div>
+            <p className="eyebrow">Files</p>
+            <h3 className="section-title">Inserted Files</h3>
+          </div>
+          <label className="button button-primary button-fit file-picker">
+            Insert files
+            <input type="file" multiple onChange={onFilesSelected} />
+          </label>
+        </div>
+        {fileMessage && <p className="text-accent">{fileMessage}</p>}
+        <div className="file-list">
+          {files.length === 0 ? (
+            <p className="muted">No files inserted yet.</p>
+          ) : (
+            files.map((file) => (
+              <article key={file.id} className="file-item">
+                <div>
+                  <p className="file-name">{file.name}</p>
+                  <p className="muted subtle">{file.type} - {formatFileSize(file.size)} - {file.addedAt}</p>
+                  <p className="muted subtle">{file.cardCount} flashcards - {file.quizQuestionCount} quiz questions</p>
+                </div>
+                <div className="button-row">
+                  <a href={file.dataUrl} download={file.name} className="button button-secondary button-small">Download</a>
+                  <button type="button" onClick={() => onDeleteFile(file.id)} className="button button-secondary button-small">
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </Panel>
     </div>
   );
 }
@@ -139,8 +224,8 @@ export function FlashcardsView(props) {
     <div>
       <Panel className="panel-spaced">
         <p className="eyebrow">Flashcards</p>
-        <h2 className="section-title-large">Built-in and custom cards</h2>
-        <p className="page-copy">Choose a module group, click a card to flip it, or create your own card for that group.</p>
+        <h2 className="section-title-large">Built-in, file, and custom cards</h2>
+        <p className="page-copy">Choose a module group or inserted file, click a card to flip it, or create your own card for that group.</p>
         <div className="chip-row">
           {groups.map((item) => (
             <button key={item.id} type="button" onClick={() => onGroupChange(item.id)} className={join("chip", item.id === selectedGroupId && "chip-active")}>
@@ -280,7 +365,7 @@ export function QuizView(props) {
   const { mode, activeQuiz, difficulty, timerMinutes, currentQuestion, currentQuestions, questionIndex, score, progress, timeLeftLabel, resultXp, quizTopics, onClose, onRestart, onSelectDifficulty, onTimerChange, onChooseAnswer, onNext, selectedAnswer } = props;
   if (mode === "result") return <Panel><p className="eyebrow">{activeQuiz.title}</p><h2 className="page-title">Quiz complete</h2><p className="page-copy">You scored {score} out of {currentQuestions.length} on {difficulty}.</p><p className="text-accent">+{resultXp} XP {score === currentQuestions.length ? "and a perfect badge unlocked." : "added to your profile."}</p><div className="button-row"><button type="button" onClick={onRestart} className="button button-primary">Try again</button><button type="button" onClick={onClose} className="button button-secondary">Back to quizzes</button></div></Panel>;
   if (mode === "active") return <Panel><div className="quiz-head"><button type="button" onClick={onClose} className="button button-secondary button-fit">Back to quizzes</button><div className="timer-block"><p className="muted">Time left</p><p className="timer-value">{timeLeftLabel}</p></div></div><div className="quiz-meta"><div><p className="eyebrow">{activeQuiz.title}</p><h2 className="section-title-large">Question {questionIndex + 1} of {currentQuestions.length}</h2></div><p className="score-pill">Score: {score}</p></div><div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div><h3 className="quiz-question">{currentQuestion.question}</h3><div className="answer-grid">{currentQuestion.options.map((option, index) => { const correct = selectedAnswer !== null && index === currentQuestion.answer; const wrong = selectedAnswer === index && !correct; return <button key={option} type="button" onClick={() => onChooseAnswer(index)} className={join("answer-button", correct && "answer-correct", wrong && "answer-wrong")}>{option}</button>; })}</div>{selectedAnswer !== null && <div className="explanation-box"><p>{selectedAnswer === currentQuestion.answer ? "Correct!" : "Not quite."}</p><p className="muted">{currentQuestion.explanation}</p>{selectedAnswer !== currentQuestion.answer && <p className="muted">Correct answer: {currentQuestion.options[currentQuestion.answer]}</p>}<button type="button" onClick={onNext} className="button button-primary button-fit">{questionIndex === currentQuestions.length - 1 ? "Finish quiz" : "Next question"}</button></div>}</Panel>;
-  return <><Panel><h2 className="section-title-large">Introduction to Networks Practice</h2><p className="page-copy">Choose a module group. Each group has 10 Easy, 15 Medium, and 25 Hard questions.</p><div className="quiz-controls"><div className="chip-row">{props.difficulties.map((level) => <button key={level} type="button" onClick={() => onSelectDifficulty(level)} className={join("chip", difficulty === level && "chip-active")}>{level}</button>)}</div><label className="timer-control"><span className="muted">Timer</span><input type="range" min="1" max="30" value={timerMinutes} onChange={(event) => onTimerChange(Number(event.target.value))} className="timer-slider" /><span className="text-accent">{timerMinutes} min</span></label></div></Panel><div className="quiz-topic-grid">{quizTopics.map((quiz) => <QuizCard key={quiz.title} title={quiz.title} desc={`${quiz.desc} ${quiz.questions.filter((question) => question.difficulty === difficulty).length} ${difficulty.toLowerCase()} questions.`} onClick={() => props.onStartQuiz(quiz)} />)}</div></>;
+  return <><Panel><h2 className="section-title-large">Practice Quizzes</h2><p className="page-copy">Choose a built-in module quiz or a quiz generated from an inserted file.</p><div className="quiz-controls"><div className="chip-row">{props.difficulties.map((level) => <button key={level} type="button" onClick={() => onSelectDifficulty(level)} className={join("chip", difficulty === level && "chip-active")}>{level}</button>)}</div><label className="timer-control"><span className="muted">Timer</span><input type="range" min="1" max="30" value={timerMinutes} onChange={(event) => onTimerChange(Number(event.target.value))} className="timer-slider" /><span className="text-accent">{timerMinutes} min</span></label></div></Panel><div className="quiz-topic-grid">{quizTopics.map((quiz) => <QuizCard key={quiz.title} title={quiz.title} desc={`${quiz.desc} ${quiz.questions.filter((question) => question.difficulty === difficulty).length} ${difficulty.toLowerCase()} questions.`} onClick={() => props.onStartQuiz(quiz)} />)}</div></>;
 }
 
 export function StaticView({ title, body, label }) {
