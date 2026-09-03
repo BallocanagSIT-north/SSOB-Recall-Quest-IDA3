@@ -124,7 +124,7 @@ export function TopBar(props) {
   );
 }
 
-export function DashboardView({ notes, noteDraft, onNoteDraftChange, onAddNote, onDeleteNote, files, fileMessage, onFilesSelected, onDeleteFile }) {
+export function DashboardView({ notes, noteDraft, onNoteDraftChange, onAddNote, onDeleteNote, files, fileMessage, acceptedFileTypes, onFilesSelected, onDeleteFile }) {
   return (
     <div className="stack">
       <Panel>
@@ -172,10 +172,11 @@ export function DashboardView({ notes, noteDraft, onNoteDraftChange, onAddNote, 
           <div>
             <p className="eyebrow">Files</p>
             <h3 className="section-title">Inserted Files</h3>
+            <p className="muted subtle file-help">Supports text, Word documents, and PDFs.</p>
           </div>
           <label className="button button-primary button-fit file-picker">
             Insert files
-            <input type="file" multiple onChange={onFilesSelected} />
+            <input type="file" multiple accept={acceptedFileTypes} onChange={onFilesSelected} />
           </label>
         </div>
         {fileMessage && <p className="text-accent">{fileMessage}</p>}

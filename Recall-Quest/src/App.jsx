@@ -43,6 +43,23 @@ const hashPassword = async (username, password) => {
 
 const cleanText = (text) => text.replace(/\s+/g, " ").trim();
 
+const acceptedFileTypes = [
+  ".txt",
+  ".md",
+  ".csv",
+  ".json",
+  ".pdf",
+  ".doc",
+  ".docx",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+].join(",");
+
 const splitStudyText = (text) => {
   const paragraphs = text
     .split(/\n{2,}|(?<=[.!?])\s+(?=[A-Z0-9])/)
@@ -105,19 +122,184 @@ const isReadableText = (text) => {
   return readable / Math.max(sample.length, 1) > 0.75;
 };
 
+const getFileExtension = (fileName) => fileName.toLowerCase().split(".").pop() || "";
+
+const readBlobAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const readStream = async (stream) => {
+  const reader = stream.getReader();
+  const chunks = [];
+  let totalLength = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    totalLength += value.length;
+  }
+
+  const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return bytes;
+};
+
+const decompressBytes = async (bytes, format) => {
+  if (!("DecompressionStream" in window)) {
+    throw new Error("Compressed document reading is not supported in this browser.");
+  }
+
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
+  return readStream(stream);
+};
+
+const decodeXml = (value) => {
+  const element = document.createElement("textarea");
+  element.innerHTML = value;
+  return element.value;
+};
+
+const extractDocxText = async (arrayBuffer) => {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  let endOfCentralDirectory = -1;
+
+  for (let offset = bytes.length - 22; offset >= 0; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      endOfCentralDirectory = offset;
+      break;
+    }
+  }
+
+  if (endOfCentralDirectory === -1) throw new Error("Could not read this Word document.");
+
+  let directoryOffset = view.getUint32(endOfCentralDirectory + 16, true);
+  const directoryEnd = directoryOffset + view.getUint32(endOfCentralDirectory + 12, true);
+  const decoder = new TextDecoder();
+
+  while (directoryOffset < directoryEnd && view.getUint32(directoryOffset, true) === 0x02014b50) {
+    const method = view.getUint16(directoryOffset + 10, true);
+    const compressedSize = view.getUint32(directoryOffset + 20, true);
+    const fileNameLength = view.getUint16(directoryOffset + 28, true);
+    const extraLength = view.getUint16(directoryOffset + 30, true);
+    const commentLength = view.getUint16(directoryOffset + 32, true);
+    const localHeaderOffset = view.getUint32(directoryOffset + 42, true);
+    const fileName = decoder.decode(bytes.slice(directoryOffset + 46, directoryOffset + 46 + fileNameLength));
+
+    if (fileName === "word/document.xml") {
+      const localFileNameLength = view.getUint16(localHeaderOffset + 26, true);
+      const localExtraLength = view.getUint16(localHeaderOffset + 28, true);
+      const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+      const compressedData = bytes.slice(dataStart, dataStart + compressedSize);
+      const documentBytes = method === 0 ? compressedData : await decompressBytes(compressedData, "deflate-raw");
+      const xml = decoder.decode(documentBytes);
+
+      return decodeXml(
+        xml
+          .replace(/<w:tab\s*\/>/g, " ")
+          .replace(/<w:br\s*\/>/g, "\n")
+          .replace(/<\/w:p>/g, "\n")
+          .replace(/<[^>]+>/g, "")
+      );
+    }
+
+    directoryOffset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  throw new Error("Could not find readable text in this Word document.");
+};
+
+const decodePdfString = (value) => value
+  .replace(/\\([nrtbf()\\])/g, (_, token) => ({ n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", "(": "(", ")": ")", "\\": "\\" }[token]))
+  .replace(/\\([0-7]{1,3})/g, (_, octal) => String.fromCharCode(Number.parseInt(octal, 8)));
+
+const extractPdfTextFromContent = (content) => {
+  const strings = [];
+  const literalPattern = /\((?:\\.|[^\\)])*\)/g;
+  const hexPattern = /<([0-9a-fA-F\s]{4,})>/g;
+  let match;
+
+  while ((match = literalPattern.exec(content))) {
+    strings.push(decodePdfString(match[0].slice(1, -1)));
+  }
+
+  while ((match = hexPattern.exec(content))) {
+    const hex = match[1].replace(/\s/g, "");
+    const bytes = [];
+    for (let index = 0; index < hex.length - 1; index += 2) {
+      bytes.push(Number.parseInt(hex.slice(index, index + 2), 16));
+    }
+    strings.push(new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes)));
+  }
+
+  return strings.join(" ");
+};
+
+const extractPdfText = async (arrayBuffer) => {
+  const bytes = new Uint8Array(arrayBuffer);
+  const pdfText = new TextDecoder("latin1").decode(bytes);
+  const candidates = [extractPdfTextFromContent(pdfText)];
+  const streamPattern = /<<[\s\S]*?>>\s*stream\r?\n?([\s\S]*?)\r?\n?endstream/g;
+  let match;
+
+  while ((match = streamPattern.exec(pdfText))) {
+    const dictionary = match[0].slice(0, match[0].indexOf("stream"));
+    if (!dictionary.includes("/FlateDecode")) continue;
+
+    const streamStart = match.index + match[0].indexOf("stream") + "stream".length;
+    const lineBreakLength = pdfText.slice(streamStart, streamStart + 2) === "\r\n" ? 2 : pdfText[streamStart] === "\n" ? 1 : 0;
+    const dataStart = streamStart + lineBreakLength;
+    const dataEnd = match.index + match[0].lastIndexOf("endstream");
+    try {
+      const inflated = await decompressBytes(bytes.slice(dataStart, dataEnd), "deflate");
+      candidates.push(extractPdfTextFromContent(new TextDecoder("latin1").decode(inflated)));
+    } catch {
+      // Some PDFs use filters or encodings the browser cannot decode without a full PDF engine.
+    }
+  }
+
+  const text = candidates.map(cleanText).filter(Boolean).join(" ");
+  if (!text) throw new Error("Could not find readable text in this PDF.");
+  return text;
+};
+
+const extractFileText = async (file) => {
+  const extension = getFileExtension(file.name);
+
+  if (extension === "docx") {
+    return extractDocxText(await file.arrayBuffer());
+  }
+
+  if (extension === "pdf" || file.type === "application/pdf") {
+    return extractPdfText(await file.arrayBuffer());
+  }
+
+  const text = await file.text();
+  if (isReadableText(text)) return text;
+
+  if (extension === "doc") {
+    throw new Error("Old .doc files are accepted, but this browser can only turn them into study material when the text is readable. Save it as .docx or PDF and try again.");
+  }
+
+  throw new Error("File does not contain readable text.");
+};
+
 const readFile = async (file) => {
   const id = createId("file");
-  const text = await file.text();
+  const text = await extractFileText(file);
   if (!isReadableText(text)) {
     throw new Error("File does not contain readable text.");
   }
 
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+  const dataUrl = await readBlobAsDataUrl(file);
   const studySet = makeFileStudySet(id, file.name, text);
 
   if (!studySet.group.cards.length) {
@@ -243,11 +425,16 @@ export default function App() {
       setProfile(nextProfile);
       setAuthDraft({ username: "", password: "" });
       setAuthMessage("Registration complete.");
+      setAuthMode("login");
       setActiveView("Profile");
       return;
     }
 
-    if (!existingUser?.passwordHash) return setAuthMessage("No password is registered for that username. Create an account first.");
+    if (!existingUser?.passwordHash) {
+      setAuthMode("register");
+      setAuthMessage("No account found. Create one here and you will be logged in right away.");
+      return;
+    }
     if (existingUser.passwordHash !== passwordHash) return setAuthMessage("Password does not match.");
     setUsers(latestUsers);
     setProfile(existingUser);
@@ -260,15 +447,23 @@ export default function App() {
   const addFiles = async (event) => {
     const selectedFiles = Array.from(event.target.files || []);
     if (!selectedFiles.length) return;
-    try {
-      const nextFiles = await Promise.all(selectedFiles.map(readFile));
+    const results = await Promise.allSettled(selectedFiles.map(readFile));
+    const nextFiles = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    const failedFiles = results.filter((result) => result.status === "rejected");
+
+    if (nextFiles.length) {
       setFiles((current) => [...nextFiles, ...current]);
       setSelectedFlashcardGroup(nextFiles[0].id);
-      setFileMessage(`${nextFiles.length} file${nextFiles.length === 1 ? "" : "s"} turned into flashcards and quizzes.`);
-      event.target.value = "";
-    } catch {
-      setFileMessage("Could not turn that file into study material. Use a readable text file.");
     }
+
+    if (failedFiles.length && nextFiles.length) {
+      setFileMessage(`${nextFiles.length} file${nextFiles.length === 1 ? "" : "s"} turned into flashcards and quizzes. ${failedFiles.length} file${failedFiles.length === 1 ? "" : "s"} could not be read.`);
+    } else if (nextFiles.length) {
+      setFileMessage(`${nextFiles.length} file${nextFiles.length === 1 ? "" : "s"} turned into flashcards and quizzes.`);
+    } else {
+      setFileMessage(failedFiles[0]?.reason?.message || "Could not turn that file into study material. Use a readable document, Word, PDF, or text file.");
+    }
+    event.target.value = "";
   };
   const deleteFile = (id) => {
     setFiles((current) => current.filter((file) => file.id !== id));
@@ -288,7 +483,7 @@ export default function App() {
     }
   };
   const viewMap = {
-    Dashboard: <DashboardView notes={notes} noteDraft={noteDraft} onNoteDraftChange={setNoteDraft} onAddNote={addNote} onDeleteNote={(id) => setNotes((current) => current.filter((note) => note.id !== id))} files={files} fileMessage={fileMessage} onFilesSelected={addFiles} onDeleteFile={deleteFile} />,
+    Dashboard: <DashboardView notes={notes} noteDraft={noteDraft} onNoteDraftChange={setNoteDraft} onAddNote={addNote} onDeleteNote={(id) => setNotes((current) => current.filter((note) => note.id !== id))} files={files} fileMessage={fileMessage} acceptedFileTypes={acceptedFileTypes} onFilesSelected={addFiles} onDeleteFile={deleteFile} />,
     Flashcards: <FlashcardsView groups={allFlashcardGroups} selectedGroupId={selectedFlashcardGroup} cards={[...visibleCustomCards, ...activeFlashcardSet.cards]} cardDraft={cardDraft} cardMessage={cardMessage} onGroupChange={(id) => { setSelectedFlashcardGroup(id); setFlippedCardId(null); }} onDraftChange={(field, value) => { setCardDraft((draft) => ({ ...draft, [field]: value })); setCardMessage(""); }} onAddCard={addCard} flippedCardId={flippedCardId} onFlip={setFlippedCardId} onDeleteCard={(id) => setCustomCards((cards) => cards.filter((card) => card.id !== id))} />,
     Profile: <ProfileView profile={profile} levelInfo={levelInfo} attempts={profile.attempts.map((attempt) => ({ ...attempt, timeLabel: formatTime(attempt.timeUsed) }))} />,
     ViewedProfile: <ViewedProfileView profile={viewedProfile} onBack={() => setActiveView("Search")} levelInfo={viewedProfile ? getLevelInfo(viewedProfile.xp) : levelInfo} />,
@@ -302,7 +497,7 @@ export default function App() {
     <div className={isLightTheme ? "app theme-light" : "app theme-dark"}>
       <Sidebar menuItems={menuItems} activeView={activeView} onViewChange={openView} profile={profile} levelInfo={levelInfo} themeLabel={`Theme: ${isLightTheme ? "Light" : "Dark"}`} onThemeToggle={() => setIsLightTheme((value) => !value)} />
       <main className="main-content">
-        <TopBar authMode={authMode} authDraft={authDraft} authMessage={authMessage} shareUrl={shareUrl} qrImageUrl={qrImageUrl} isShareOpen={isShareOpen} onAuthModeChange={(mode) => { setAuthMode(mode); setAuthMessage(""); }} onAuthDraftChange={(field, value) => setAuthDraft((draft) => ({ ...draft, [field]: value }))} onAuthSubmit={submitAuth} onShareToggle={() => setIsShareOpen((value) => !value)} onCopyShareUrl={copyShareUrl} onLogout={() => { setProfile(makeDefaultProfile()); window.localStorage.removeItem("recallQuestCurrentUser"); setActiveView("Quiz"); }} />
+        <TopBar authMode={authMode} authDraft={authDraft} authMessage={authMessage} shareUrl={shareUrl} qrImageUrl={qrImageUrl} isShareOpen={isShareOpen} onAuthModeChange={(mode) => { setAuthMode(mode); setAuthMessage(""); }} onAuthDraftChange={(field, value) => setAuthDraft((draft) => ({ ...draft, [field]: value }))} onAuthSubmit={submitAuth} onShareToggle={() => setIsShareOpen((value) => !value)} onCopyShareUrl={copyShareUrl} onLogout={() => { setProfile(makeDefaultProfile()); setAuthMode("login"); setAuthDraft({ username: "", password: "" }); setAuthMessage("Logged out. You can log in again anytime."); window.localStorage.removeItem("recallQuestCurrentUser"); setActiveView("Quiz"); }} />
         {viewMap[activeView] || viewMap.Quiz}
       </main>
     </div>

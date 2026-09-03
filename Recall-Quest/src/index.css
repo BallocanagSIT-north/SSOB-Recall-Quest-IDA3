@@ -570,6 +570,10 @@ button {
   overflow: hidden;
 }
 
+.file-help {
+  margin: 6px 0 0;
+}
+
 .file-picker input {
   position: absolute;
   inset: 0;
@@ -731,6 +735,22 @@ button {
     padding: 18px;
   }
 
+  .panel {
+    padding: 18px;
+  }
+
+  .page-title {
+    font-size: 2rem;
+  }
+
+  .section-title-large {
+    font-size: 1.55rem;
+  }
+
+  .section-head {
+    gap: 14px;
+  }
+
   .metric-grid,
   .answer-grid {
     grid-template-columns: 1fr;
@@ -751,8 +771,21 @@ button {
 
   .share-wrap,
   .share-wrap .button,
-  .auth-tabs {
+  .auth-tabs,
+  .button-fit,
+  .file-picker,
+  .file-item .button-row,
+  .file-item .button {
     width: 100%;
+  }
+
+  .file-item {
+    overflow: hidden;
+  }
+
+  .file-item .button-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .share-popover {
@@ -766,5 +799,72 @@ button {
 
   .timer-block {
     text-align: left;
+  }
+}
+
+@media (max-width: 520px) {
+  .sidebar {
+    padding: 16px;
+  }
+
+  .main-content {
+    padding: 14px;
+  }
+
+  .panel,
+  .subpanel,
+  .note-card,
+  .metric-card,
+  .ranking-card,
+  .badge-card {
+    padding: 14px;
+  }
+
+  .topbar {
+    gap: 10px;
+  }
+
+  .login-form,
+  .button-row {
+    gap: 10px;
+  }
+
+  .field-input-inline,
+  .login-form .button,
+  .search-form .button,
+  .flashcard-form .button {
+    width: 100%;
+  }
+
+  .chip-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chip {
+    width: 100%;
+    padding-inline: 10px;
+  }
+
+  .info-grid,
+  .notes-grid,
+  .card-grid,
+  .quiz-topic-grid,
+  .ranking-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .file-item .button-row {
+    grid-template-columns: 1fr;
+  }
+
+  .timer-control {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .timer-slider {
+    width: 100%;
   }
 }
