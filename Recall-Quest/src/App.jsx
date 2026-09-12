@@ -36,9 +36,20 @@ const loadList = (key) => {
 };
 
 const hashPassword = async (username, password) => {
-  const encoded = new TextEncoder().encode(`${username.trim().toLowerCase()}:${password}`);
-  const digest = await window.crypto.subtle.digest("SHA-256", encoded);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const value = `${username.trim().toLowerCase()}:${password}`;
+
+  if (window.crypto?.subtle) {
+    const encoded = new TextEncoder().encode(value);
+    const digest = await window.crypto.subtle.digest("SHA-256", encoded);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `local-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 };
 
 const cleanText = (text) => text.replace(/\s+/g, " ").trim();
